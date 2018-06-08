@@ -12,8 +12,7 @@ pair= (buffer = {}) ->
 
   environment = {}
   escape = (value) ->
-    res = tostring(value)\gsub [[[<>&]'"]], escapes
-    res
+    (=>@) tostring(value)\gsub [[[<>&]'"]], escapes
 
   split = (tab) ->
     ary = {}
@@ -24,10 +23,16 @@ pair= (buffer = {}) ->
 
   flatten = (tab, flat={}) ->
     for key, value in pairs tab
-      if type(value)=="table"
-        flatten(value, flat)
+      if type(key)=="number"
+        if type(value)=="table"
+          flatten(value, flat)
+        else
+          flat[#flat+1]=value
       else
-        flat[key] = value
+        if type(value)=="table"
+          flat[key] = table.concat value ' '
+        else
+          flat[key] = value
     flat
 
   attrib = (args) ->
@@ -58,7 +63,6 @@ pair= (buffer = {}) ->
 
   environment.tag = (tagname, ...) ->
     inner, args = split flatten {...}
-
     table.insert buffer, "<#{tagname}#{attrib args}#{#inner==0 and ' /' or ''}>"
     handle inner unless #inner==0
     table.insert buffer, "</#{tagname}>" unless (#inner==0)
@@ -71,17 +75,26 @@ pair= (buffer = {}) ->
   }
   return environment, buffer
 
-build = (fnc) ->
-  env, buf = pair!
-  hlp = do -- gotta love this syntax ♥
-    _ENV = env
-    -> aaaaa -- needs to access a global to get the environment upvalue
-  assert(type(fnc)=='function', 'wrong argument to render, expecting function')
-  debug.upvaluejoin(fnc, 1, hlp, 1) -- Set environment
-  fnc!
-  buf
+build = if _VERSION == 'lua 5.1' then
+  (fnc) ->
+    assert(type(fnc)=='function', 'wrong argument to render, expecting function')
+    env, buf = pair
+    setfenv(fnc, env)
+    fnc!
+    buf
+else
+  (fnc) ->
+    assert(type(fnc)=='function', 'wrong argument to render, expecting function')
+    env, buf = pair!
+    hlp = do -- gotta love this syntax ♥
+      _ENV = env
+      -> aaaaa -- needs to access a global to get the environment upvalue
+    debug.upvaluejoin(fnc, 1, hlp, 1) -- Set environment
+    fnc!
+    buf.render = => table.concat @, "\n"
+    buf
 
 render = (fnc) ->
-  return table.concat build(fnc), '\n'
+  build(fnc)\render!
 
 {:render, :build, :pair}
